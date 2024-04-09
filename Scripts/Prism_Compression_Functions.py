@@ -1,6 +1,6 @@
-from PySide2.QtCore import *
-from PySide2.QtGui import *
-from PySide2.QtWidgets import *
+from qtpy.QtCore import *
+from qtpy.QtGui import *
+from qtpy.QtWidgets import *
 
 import zipfile,tarfile, os, traceback, re
 
@@ -463,6 +463,8 @@ class Prism_Compression_Functions(object):
         origin.cmp_deleteOldCheckbox = QCheckBox()
         origin.cmp_deleteOldCheckbox.setToolTip("Delete the original file AFTER compression")
         deleteOldLayout.addWidget(origin.cmp_deleteOldCheckbox)
+
+        origin.lo_myPlugin.addStretch()
 
         origin.addTab(origin.w_myPlugin, "Compression")
 
