@@ -5,7 +5,7 @@ A simple compression plugin for Prism Pipeline
 Using Pythons zipfile and tarfiles library, the plugin allows the user to compress any asset scene.
 - Right click any asset file in prism and press compress
 
-To decompress files back to original, just either doable click or right click decompress
+To decompress files back to original, just either double click or right click decompress
 
 Right clicking a task allows for bulk compressing of files
 
