@@ -19,6 +19,7 @@ class pluginSignals(QObject):
     taskFinished = Signal()
     updateProgress = Signal(str)
     errorPopup = Signal(str)   
+    openFile = Signal(str)
 
 class CompressionTaskSignals(QObject):
     doAll = Signal(str)
@@ -30,12 +31,13 @@ class workerThread(QThread):
     filePath = None
     fileList = None
     
-    def __init__(self, signals:pluginSignals, compressionType = 'Zip', deleteOld= True, zipCompressionLevel = 8, filePath:str=None, fileList = None):        
+    def __init__(self, signals:pluginSignals, compressionType = 'Zip', deleteOld= True, zipCompressionLevel = 8, filePath:str=None, fileList = None, openFile=False):        
         super(workerThread, self).__init__()
         
         self.compressionType = compressionType
         self.zipCompressionLevel = zipCompressionLevel
         self.deleteOld = deleteOld
+        self.openFile = openFile
         
         if filePath is None and fileList is None:
                 self.signals.errorPopup.emit("Both filePath and fileList cannot be None")
@@ -131,6 +133,9 @@ class workerThread(QThread):
                          
         except Exception as e:
             self.signals.errorPopup.emit(f"Error decompressing file \n {traceback.format_exception(e)}")
+
+        if self.openFile:
+          self.signals.openFile.emit(unzipped_file)  
 
     def run(self):
         #TODO: separate logic for compressing and decompressing
@@ -237,7 +242,7 @@ class CompressionTask(QDialog):
         
 class Prism_Compression_Functions(object):
     programExts = []
-    default = {"type":"Zip","zipLevel":"ZIP_DEFLATED","deleteOld":True}
+    default = {"type":"Zip","zipLevel":"ZIP_DEFLATED","deleteOld":True,"openFile":False}
     
     def __init__(self, core, plugin):
         self.core:PrismCore = core
@@ -253,11 +258,13 @@ class Prism_Compression_Functions(object):
         self.signals.errorPopup.connect(self._errorPopup)
         self.signals.updateUI.connect(self._updateUI)
         self.signals.updateProgress.connect(self._updateProgressBar)
+        self.signals.openFile.connect(self._openFile)
         
         # Signals for task popup
         self.taskCompressionSignals.doAll.connect(self._taskCompressAll)
         self.taskCompressionSignals.doAllButLatest.connect(self._taskCompressAllButLatest)
         self.taskCompressionSignals.doCustom.connect(self._taskCompressCustom)
+        
 
         # On plugin loads to properly get the scene formats
         self.core.registerCallback("onPluginsLoaded", self._loadExts, plugin=self)
@@ -292,6 +299,9 @@ class Prism_Compression_Functions(object):
         
     def _updateProgressBar(self, message:str):
         self.popup.label.setText(message)
+        
+    def _openFile(self, file:str):
+        self.core.openFile(file)
 
     ### Functions for task popup
     
@@ -301,12 +311,12 @@ class Prism_Compression_Functions(object):
     
     def _taskCompressAll(self, path:str):
         files = self._getAllFiles(path)
-        self.doJob(filelist=files)
+        self.doJob(filelist=files, bulk=True)
     
     def _taskCompressAllButLatest(self, path:str):
         files = self._getAllFiles(path)
         files.remove(files[-1])
-        self.doJob(filelist=files)
+        self.doJob(filelist=files, bulk=True)
     
     def _taskCompressCustom(self, path:str, start:int, end:int):
         files = self._getAllFiles(path)
@@ -320,7 +330,7 @@ class Prism_Compression_Functions(object):
             self.core.popup("No files found for the given range","Error")
             return
         
-        self.doJob(filelist=filteredFiles)
+        self.doJob(filelist=filteredFiles, bulk=True)
         
     ###
     
@@ -347,6 +357,14 @@ class Prism_Compression_Functions(object):
             return self.default["zipLevel"]
         
         return zipLevel
+    
+    def getOpenFile(self):
+        openFile = self.core.getConfig("compression", "openFile", config="project")
+        
+        if openFile == None:
+            return self.default["openFile"]
+        
+        return openFile
 
     def customizeExecutable(self, origin, empty, force = None):
         if force is not None:
@@ -357,12 +375,17 @@ class Prism_Compression_Functions(object):
         self.popupTask = CompressionTask(self.taskCompressionSignals,path)
         self.popupTask.show()
 
-    def doJob(self,path=None,filelist=None):
+    def doJob(self,path=None,filelist=None,bulk=False):
         compType = self.getCompressionType()
         deleteOld = self.getDeleteOld()
         CompressionLevel = CompressionZipType[self.getZipCompressionLevel()]
         
-        self.worker = workerThread(self.signals, compType, deleteOld, CompressionLevel, filePath=path, fileList=filelist)
+        if not bulk:
+            openFile = self.getOpenFile()
+        else:
+            openFile = False
+        
+        self.worker = workerThread(self.signals, compType, deleteOld, CompressionLevel, filePath=path, fileList=filelist, openFile=openFile)
         self.popup.label.setText("Compressing files... Will close when completed.")
         self.popup.show()
         self.worker.start()
@@ -416,10 +439,11 @@ class Prism_Compression_Functions(object):
                 self.core.popup("Tar.gz is Experimental, Prism does not behave as intended. Use at your own risk","Warning")
                 zipCompressionLevel.setVisible(False)
                 origin.cmp_zipCompressionLevel.setVisible(False)
-        
-        # create a widget
+
         origin.w_myPlugin = QWidget()
         origin.lo_myPlugin = QVBoxLayout(origin.w_myPlugin)
+
+        origin.lo_myPlugin.addStretch()
 
         compTypeLayout = QHBoxLayout()
         origin.lo_myPlugin.addLayout(compTypeLayout)
@@ -432,7 +456,6 @@ class Prism_Compression_Functions(object):
         origin.cmp_compTypeDropdown.setToolTip("Select the compression type to use")
         compTypeLayout.addWidget(origin.cmp_compTypeDropdown)
 
-        # if origin.cmp_compTypeDropdown.currentText() == "Zip" show zip compression level
         origin.cmp_compTypeDropdown.currentTextChanged.connect(changeVisibility)
 
         zipCompressionLevelLayout = QHBoxLayout()
@@ -464,6 +487,17 @@ class Prism_Compression_Functions(object):
         origin.cmp_deleteOldCheckbox.setToolTip("Delete the original file AFTER compression")
         deleteOldLayout.addWidget(origin.cmp_deleteOldCheckbox)
 
+        OpenFileLayout = QHBoxLayout()
+        origin.lo_myPlugin.addLayout(OpenFileLayout)
+        
+        OpenFile = QLabel("Open compressed file after decompression: ")
+        OpenFile.setAlignment(Qt.AlignRight)
+        OpenFileLayout.addWidget(OpenFile)
+        
+        origin.cmp_OpenFileCheckbox = QCheckBox()
+        origin.cmp_OpenFileCheckbox.setToolTip("Open the compressed file after decompression")
+        OpenFileLayout.addWidget(origin.cmp_OpenFileCheckbox)
+
         origin.lo_myPlugin.addStretch()
 
         origin.addTab(origin.w_myPlugin, "Compression")
@@ -477,6 +511,7 @@ class Prism_Compression_Functions(object):
             settings["compression"]["type"] = "Zip"
             settings["compression"]["zipLevel"] = "ZIP_DEFLATED"
             settings["compression"]["deleteOld"] = True
+            settings["compression"]["openFile"] = False
             
 
         if "type" in settings["compression"]:
@@ -488,9 +523,13 @@ class Prism_Compression_Functions(object):
         if "deleteOld" in settings["compression"]:
             origin.cmp_deleteOldCheckbox.setChecked(settings["compression"]["deleteOld"])
             
+        if "openFile" in settings["compression"]:
+            origin.cmp_OpenFileCheckbox.setChecked(settings["compression"]["openFile"])
+            
     def preProjectSettingsSave(self, origin, settings):
         if "compression" not in settings:
             settings["compression"] = {}
             settings["compression"]["type"] = origin.cmp_compTypeDropdown.currentText()
             settings["compression"]["zipLevel"] = origin.cmp_zipCompressionLevel.currentText()
             settings["compression"]["deleteOld"] = origin.cmp_deleteOldCheckbox.isChecked()
+            settings["compression"]["openFile"] = origin.cmp_OpenFileCheckbox.isChecked()
