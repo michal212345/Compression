@@ -37,13 +37,13 @@ import os
 
 class Prism_Compression_Variables(object):
     def __init__(self, core, plugin):
-        self.version = "v0.0.1"
+        self.version = "v0.0.2"
         self.pluginName = "Compression"
         self.pluginType = "App"
         self.appType = "3d"
         self.hasQtParent = True
         self.hasIntegration = False
-        self.sceneFormats = [".zip",".gz",".xz"]
+        self.sceneFormats = [".zip",".gz"]
         self.appSpecificFormats = self.sceneFormats
         self.platforms = ["Windows", "Linux", "Darwin"]
         self.pluginDirectory = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
